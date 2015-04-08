@@ -45,9 +45,9 @@ object Enumerators {
 
         val resultFuture: Future[Option[T]] =
           (firstCall, maybeCursor) match {
-            case (true, _) => paginated(maybeCursor).map { t => sleepFor(sleep); t }(ec)
+            case (true, _)                     => paginated(maybeCursor).map { t => sleepFor(sleep); t }(ec)
             case (false, Some(marker: String)) => paginated(maybeCursor).map { t => sleepFor(sleep); t }(ec)
-            case (false, None) => Promise.successful(None).future
+            case (false, None)                 => Promise.successful(None).future
           }
 
         resultFuture.map { result =>

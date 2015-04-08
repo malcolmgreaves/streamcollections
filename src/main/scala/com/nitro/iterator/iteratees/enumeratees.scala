@@ -99,7 +99,7 @@ object EnumerateeHelpers {
 
         case in @ Input.Empty => Cont(step(k))
 
-        case Input.EOF => Done(Cont(k), Input.EOF)
+        case Input.EOF        => Done(Cont(k), Input.EOF)
 
       }
 

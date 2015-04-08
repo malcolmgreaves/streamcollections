@@ -17,6 +17,7 @@ libraryDependencies ++= Seq(
   "ch.qos.logback" % "logback-classic" % "1.1.2",
   "org.joda" % "joda-convert" % "1.6",
   "com.jsuereth" %% "scala-arm" % "1.4",
+  "com.github.scopt" %% "scopt" % "3.3.0",
   "org.specs2" %% "specs2-core" % "3.0.1" % "test"
 )
 

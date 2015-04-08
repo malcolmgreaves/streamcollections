@@ -103,7 +103,7 @@ class Bucket(val name: String, val client: AmazonS3) {
           listing <- listingFuture
         } yield {
           listing.objectSummaries match {
-            case Nil => None
+            case Nil          => None
             case head :: tail => Some(listing)
           }
         }
