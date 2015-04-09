@@ -6,14 +6,32 @@ import play.api.libs.iteratee.Enumerator
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
-import scala.concurrent.{ Await, Future }
+import scala.concurrent.{ ExecutionContext, Await, Future }
 
 import org.specs2.specification.Scope
 
 trait EnumeratorFixture extends Scope {
 
-  val integerEnumerator = Enumerator.enumerate(1 to 5 toList)
+  val integerEnumerator = Enumerator.enumerate[Int](1 to 5 toList)
+
   val emptyEnumerator = Enumerator.enumerate[Int](Nil)
+}
+
+trait EnumeratorListFixture extends Scope {
+
+  implicit def traversable2Enumerator[T](x: Traversable[T])(implicit ec: ExecutionContext): Enumerator[T] =
+    Enumerator.enumerate(x)
+
+  val (intListEnumerator, flattenedIntListEnumerator, sizeIntsInLists) = {
+    val x = (0 until 4).map(i => (1 to 5).map(x => x * i)).toSeq
+    val flat = x.flatten
+    (
+      Enumerator.enumerate[Seq[Int]](x),
+      Enumerator.enumerate[Int](flat),
+      flat.size
+    )
+  }
+
 }
 
 class PlayStreamIteratorSpec extends Specification {
@@ -143,6 +161,40 @@ class PlayStreamIteratorSpec extends Specification {
       val takeTwo = iterator.drop(2)
       takeTwo.count must be_==(3).await
     }
+
+    "flatten with list elements" in new EnumeratorListFixture {
+
+      val flattenedSeq = Await.result(
+        {
+          val seqFuture =
+            PlayStreamIterator[Seq[Int]](intListEnumerator)
+              .flatten[Int]
+              .take(sizeIntsInLists)
+              .foldLeft(Seq.empty[Int])({ case (accum, x) => accum :+ x })
+          seqFuture.map(_.size) must be_==(sizeIntsInLists).await
+          seqFuture
+        },
+        Duration.Inf
+      )
+
+      val allEqualInSequence = {
+        var i = 0
+        PlayStreamIterator[Seq[Int]](intListEnumerator)
+          .forall(seq =>
+            Future(
+              seq.forall(x => {
+                val fromFlattenedSeq = flattenedSeq(i)
+                i += 1
+                fromFlattenedSeq == x
+              })
+            )
+          )
+      }
+
+      allEqualInSequence must be_==(true).await
+    }
+
+    
   }
 
 }
