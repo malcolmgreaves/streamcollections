@@ -19,9 +19,6 @@ trait EnumeratorFixture extends Scope {
 
 trait EnumeratorListFixture extends Scope {
 
-  implicit def traversable2Enumerator[T](x: Traversable[T])(implicit ec: ExecutionContext): Enumerator[T] =
-    Enumerator.enumerate(x)
-
   val (intListEnumerator, flattenedIntListEnumerator, sizeIntsInLists) = {
     val x = (0 until 4).map(i => (1 to 5).map(x => x * i)).toSeq
     val flat = x.flatten
@@ -166,6 +163,7 @@ class PlayStreamIteratorSpec extends Specification {
 
       val flattenedSeq = Await.result(
         {
+          import PlayStreamIteratorSpec.travOnce2Enumerator
           val seqFuture =
             PlayStreamIterator[Seq[Int]](intListEnumerator)
               .flatten[Int]
@@ -194,7 +192,31 @@ class PlayStreamIteratorSpec extends Specification {
       allEqualInSequence must be_==(true).await
     }
 
-    
+    "flatMap with int elements, using Option" in new EnumeratorFixture {
+
+      import PlayStreamIteratorSpec.travOnce2Enumerator
+
+      val evenOnly =
+        PlayStreamIterator[Int](integerEnumerator)
+          .flatMap(i =>
+            travOnce2Enumerator(
+              if (i % 2 == 0)
+                Some(i)
+              else
+                None
+            )
+          )
+
+      evenOnly.forall(i => Future(i % 2 == 0)) must be_==(true).await
+    }
   }
+
+}
+
+object PlayStreamIteratorSpec {
+
+  /** Covers Seq, List, etc. as well as Option */
+  implicit def travOnce2Enumerator[T](x: TraversableOnce[T])(implicit ec: ExecutionContext): Enumerator[T] =
+    Enumerator.enumerate(x)
 
 }
