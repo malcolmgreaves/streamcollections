@@ -116,7 +116,7 @@ object Main extends App {
       System.exit(1)
 
     case Some(config) =>
-      System.err.println(s"Using configuration: $config")
+      System.err.println(s"Using configuration:\n$config")
 
       val s3 = S3Client.withCredentials(S3Credentials(config.accessKey, config.secretKey))
 
@@ -147,7 +147,7 @@ object Main extends App {
                 })
                 .map({
                   case (nKeys, nCompound) =>
-                    println(s"There are $nKeys across $nCompound object lists in bucket ${bucket.name}")
+                    println(s"""There are $nKeys keys across $nCompound object lists in bucket "${bucket.name}"""")
                 })
 
             case FilterKeys(limit, keyPredicate) =>
