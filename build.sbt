@@ -24,7 +24,8 @@ libraryDependencies ++= Seq(
 scalacOptions ++= Seq(
   "-optimize",
   "-feature",
-  "-language:implicitConversions"
+  "-language:implicitConversions",
+  "-language:postfixOps"
 )
 
 scalacOptions in Test ++= Seq("-Yrangepos")
