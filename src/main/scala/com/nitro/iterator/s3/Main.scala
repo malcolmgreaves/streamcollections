@@ -3,9 +3,10 @@ package com.nitro.iterator.s3
 import java.io.File
 
 import com.nitro.iterator.PlayStreamIterator
+import play.api.libs.iteratee.{ Iteratee, Enumerator }
 import scopt.Read
 
-import scala.concurrent.{ Future, Await }
+import scala.concurrent.{ ExecutionContext, Future, Await }
 import scala.concurrent.duration._
 import scala.io.Source
 import scala.util.{ Try, Failure, Success, Random }
@@ -97,16 +98,10 @@ object Main extends App {
     } text "action is what this client will do: CountKeys limit , PrintKeys limit, FilterKeys limit predicate"
   }
 
-  def printKeys(iter: PlayStreamIterator[List[S3ObjectSummary]]): Future[Unit] =
+  def printKeys(iter: PlayStreamIterator[S3ObjectSummary]): Future[Unit] =
     iter
-      .map(l =>
-        l.map(x =>
-          s"${x.key}\t${x.bucketName}\t${x.underlying.getSize}\t${x.underlying.getStorageClass}\t${x.lastModified}"
-        )
-      )
-      .foreach(l =>
-        if (l.nonEmpty)
-          println(s"""${l.mkString("\n")}""")
+      .foreach(x =>
+        println(s"${x.key}\t${x.bucketName}\t${x.underlying.getSize}\t${x.underlying.getStorageClass}\t${x.lastModified}")
       )
 
   parser.parse(args, MainConfig()) match {
@@ -130,15 +125,21 @@ object Main extends App {
 
         case Some(action) =>
 
+          import scala.concurrent.ExecutionContext.Implicits.global
+          import EnumeratorFnHelper.traversable2Enumerator
+
           val futureResult: Future[_] = action match {
 
             case PrintKeys(limit) =>
               System.err.println(s"Printing up to $limit keys...")
-              printKeys(keys.take(limit.toInt))
+              printKeys(
+                keys
+                  .flatten
+                  .take(limit.toInt)
+              )
 
             case CountKeys =>
               System.err.println(s"Counting all keys...")
-              import scala.concurrent.ExecutionContext.Implicits.global
               keys
                 .foldLeft((0L, 0))({
                   case ((nKeys, nCompound), objects) =>
@@ -153,16 +154,16 @@ object Main extends App {
               System.err.println(s"Filtering keys that start with: $keyPredicate")
               printKeys(
                 keys
+                  .flatten
+                  .filter(x => x.key.startsWith(keyPredicate))
                   .take(limit)
-                  .map(l =>
-                    l.filter(x => x.key.startsWith(keyPredicate))
-                  )
               )
 
             case RandomSample(limit) =>
               System.err.println(s"Taking a random sample of size $limit")
               printKeys(
                 keys
+                  .flatten
                   .filter(_ => Random.nextBoolean())
                   .take(limit)
               )
@@ -203,4 +204,11 @@ object Main extends App {
           Await.result(futureResult, Duration.Inf)
       }
   }
+}
+
+object EnumeratorFnHelper {
+
+  implicit def traversable2Enumerator[T](x: Traversable[T])(implicit ec: ExecutionContext): Enumerator[T] =
+    Enumerator.enumerate(x)
+
 }

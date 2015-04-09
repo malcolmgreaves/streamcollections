@@ -196,6 +196,15 @@ class PlayStreamIterator[T](val underlying: Enumerator[T]) {
     val foldingSink = Iteratee.foldM[T, U](zero)(f)
     underlying |>>> foldingSink
   }
+
+  def flatMap[U](f: T => Enumerator[U]): PlayStreamIterator[U] = {
+    val flatMap = Enumeratee.mapFlatten[T][U](f)
+    new PlayStreamIterator[U](underlying &> flatMap)
+  }
+
+  def flatten[U](implicit asEnumerator: T => Enumerator[U]): PlayStreamIterator[U] =
+    flatMap(x => asEnumerator(x))
+
 }
 
 object PlayStreamIterator {
