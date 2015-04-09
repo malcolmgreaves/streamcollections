@@ -8,11 +8,11 @@ import scala.concurrent.duration._
 
 sealed trait Action
 
-case class PrintKeys(limit: Long) extends Action
+case class PrintKeys(limit: Int) extends Action
 case object CountKeys extends Action
-case class FilterKeys(limit: Long, keyPredicate: String) extends Action
+case class FilterKeys(limit: Int, keyStartsWith: String) extends Action
 
-case class ActionOpt(name: String, limit: Long = -1, extra: String = "") {
+case class ActionOpt(name: String, limit: Int = -1, extra: String = "") {
 
   def toAction: Action = {
     val n = name.toLowerCase
@@ -30,9 +30,9 @@ case class ActionOpt(name: String, limit: Long = -1, extra: String = "") {
       throw new Exception(s"unknown Action name: $name")
   }
 
-  def correctedLimit: Long =
+  def correctedLimit =
     if (limit < 0)
-      Long.MaxValue
+      Int.MaxValue
     else
       limit
 
@@ -57,9 +57,9 @@ object MainConfig {
       (s: String) => {
         val bits = s.split(" ")
         if (bits.size == 2)
-          ActionOpt(bits(0), bits(1).toLong)
+          ActionOpt(bits(0), bits(1).toInt)
         else
-          ActionOpt(bits(0), bits(1).toLong, bits(2))
+          ActionOpt(bits(0), bits(1).toInt, bits(2))
       }
   }
 
@@ -93,12 +93,13 @@ object Main extends App {
     iter
       .map(l =>
         l.map(x =>
-          s"${x.key} ${x.underlying.getSize} ${x.underlying.getStorageClass} ${x.lastModified} "
+          s"${x.key}\t${x.bucketName}\t${x.underlying.getSize}\t${x.underlying.getStorageClass}\t${x.lastModified}"
         )
       )
-      .foreach(l => {
-        println(s"""${l.mkString("\n")}""")
-      })
+      .foreach(l =>
+        if (l.nonEmpty)
+          println(s"""${l.mkString("\n")}""")
+      )
 
   parser.parse(args, MainConfig()) match {
 
@@ -133,13 +134,15 @@ object Main extends App {
             println(s"$nKeys keys in bucket ${bucket.name}")
 
           case FilterKeys(limit, keyPredicate) =>
-            println(s"Filtering keys using predicate on name: $keyPredicate")
+            println(s"Filtering keys that start with: $keyPredicate")
             Await.result(
-              keys
-                .take(limit)
-                .map(l =>
-                  l.filter(x => x.key.startsWith(keyPredicate))
-                ),
+              printKeys(
+                keys
+                  .take(limit)
+                  .map(l =>
+                    l.filter(x => x.key.startsWith(keyPredicate))
+                  )
+              ),
               Duration.Inf
             )
         }
