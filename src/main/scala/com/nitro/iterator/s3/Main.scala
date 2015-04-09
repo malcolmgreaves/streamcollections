@@ -51,17 +51,16 @@ object MainConfig {
         val name = bits(0)
         val n = name.toLowerCase
 
-        if (n.startsWith("printkeys")) {
+        if (n.startsWith("print")) {
           PrintKeys(correctedLimit(bits(1).toInt))
 
-        } else if (n.startsWith("countkeys")) {
+        } else if (n.startsWith("count")) {
           CountKeys
 
-        } else if (n.startsWith("filterkeys")) {
-
+        } else if (n.startsWith("filter")) {
           FilterKeys(correctedLimit(bits(1).toInt), bits(2))
 
-        } else if (n.startsWith("randomsample")) {
+        } else if (n.startsWith("random") || n.startsWith("sample")) {
           RandomSample(correctedLimit(bits(1).toInt))
 
         } else if (n.startsWith("copy")) {
