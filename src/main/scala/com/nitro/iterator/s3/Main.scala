@@ -19,13 +19,11 @@ case object CountKeys extends Action
 
 case class FilterKeys(limit: Int, keyStartsWith: String) extends Action
 
-case class RandomItemSample(limit: Int) extends Action
+case class ItemSample(limit: Int) extends Action
 
-case class RandomSizeSample(size:Megabyte) extends Action
+case class SizeSample(size:Megabyte) extends Action
 
-case class Megabyte(x:Int) {
-  @inline def toInt:Int = x
-}
+case class Megabyte(x:Int)
 
 case class Copy(toBucket: String, from: File) extends Action
 
@@ -68,10 +66,10 @@ object MainConfig {
           FilterKeys(correctedLimit(bits(1).toInt), bits(2))
 
         } else if (n.startsWith("itemsample")) {
-          RandomItemSample(correctedLimit(bits(1).toInt))
+          ItemSample(correctedLimit(bits(1).toInt))
 
         } else if(n.startsWith("sizesample")) {
-          RandomSizeSample(Megabyte(correctedLimit(bits(1).toInt)))
+          SizeSample(Megabyte(correctedLimit(bits(1).toInt)))
 
         } else if (n.startsWith("copy")) {
           Copy(bits(1), new File(bits(2)))
@@ -168,7 +166,7 @@ object Main extends App {
                   .take(limit)
               )
 
-            case RandomItemSample(limit) =>
+            case ItemSample(limit) =>
               System.err.println(s"Taking a random sample of size $limit")
               printKeys(
                 keys
@@ -177,7 +175,7 @@ object Main extends App {
                   .take(limit)
               )
 
-            case RandomSizeSample(Megabyte(sizeMB)) =>
+            case SizeSample(Megabyte(sizeMB)) =>
               System.err.println(s"Taking a random sample of at least $sizeMB MB")
 
               val mutableSizePredicate = {
@@ -246,6 +244,8 @@ object Main extends App {
 }
 
 object EnumeratorFnHelper {
+
+  import scala.language.implicitConversions
 
   implicit def traversable2Enumerator[T](x: Traversable[T])(implicit ec: ExecutionContext): Enumerator[T] =
     Enumerator.enumerate(x)
