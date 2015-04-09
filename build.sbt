@@ -23,4 +23,4 @@ libraryDependencies ++= Seq(
 
 scalacOptions in Test ++= Seq("-Yrangepos")
 
-scalariformSettings
+defaultScalariformSettings
