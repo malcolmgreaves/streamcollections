@@ -1,11 +1,14 @@
 package com.nitro.iterator.s3
 
+import java.io.File
+
 import com.nitro.iterator.PlayStreamIterator
 import scopt.Read
 
 import scala.concurrent.{ Future, Await }
 import scala.concurrent.duration._
-import scala.util.Random
+import scala.io.Source
+import scala.util.{ Try, Failure, Success, Random }
 
 sealed trait Action
 
@@ -17,34 +20,7 @@ case class FilterKeys(limit: Int, keyStartsWith: String) extends Action
 
 case class RandomSample(limit: Int) extends Action
 
-case class ActionOpt(name: String, limit: Int = -1, extra: String = "") {
-
-  def toAction: Action = {
-    val n = name.toLowerCase
-
-    if (n.startsWith("printkeys"))
-      PrintKeys(correctedLimit)
-
-    else if (n.startsWith("countkeys"))
-      CountKeys
-
-    else if (n.startsWith("filterkeys"))
-      FilterKeys(correctedLimit, extra)
-
-    else if (n.startsWith("randomsample"))
-      RandomSample(limit)
-
-    else
-      throw new Exception(s"unknown Action name: $name")
-  }
-
-  def correctedLimit =
-    if (limit < 0)
-      Int.MaxValue
-    else
-      limit
-
-}
+case class Copy(toBucket: String, from: File) extends Action
 
 case class MainConfig(
     accessKey: String = "",
@@ -57,17 +33,42 @@ case class MainConfig(
 
 object MainConfig {
 
-  implicit val readAction = new Read[ActionOpt] {
+  import Numeric._
+
+  def correctedLimit[N](limit: N)(implicit n: Numeric[N]) =
+    if (n.lt(limit, n.zero))
+      n.zero
+    else
+      limit
+
+  implicit val readAction = new Read[Action] {
 
     override def arity: Int = 3
 
     override def reads =
       (s: String) => {
         val bits = s.split(" ")
-        if (bits.size == 2)
-          ActionOpt(bits(0), bits(1).toInt)
-        else
-          ActionOpt(bits(0), bits(1).toInt, bits(2))
+        val name = bits(0)
+        val n = name.toLowerCase
+
+        if (n.startsWith("printkeys")) {
+          PrintKeys(correctedLimit(bits(1).toInt))
+
+        } else if (n.startsWith("countkeys")) {
+          CountKeys
+
+        } else if (n.startsWith("filterkeys")) {
+
+          FilterKeys(correctedLimit(bits(1).toInt), bits(2))
+
+        } else if (n.startsWith("randomsample")) {
+          RandomSample(correctedLimit(bits(1).toInt))
+
+        } else if (n.startsWith("copy")) {
+          Copy(bits(1), new File(bits(2)))
+
+        } else
+          throw new Exception(s"unknown Action name: $name")
       }
   }
 
@@ -92,8 +93,8 @@ object Main extends App {
       c.copy(bucket = x)
     } text "bucket is the S3 bucket"
 
-    opt[ActionOpt]('c', "action") required () valueName "<Action>" action { (x, c) =>
-      c.copy(action = Some(x.toAction))
+    opt[Action]('c', "action") required () valueName "<Action>" action { (x, c) =>
+      c.copy(action = Some(x))
     } text "action is what this client will do: CountKeys limit , PrintKeys limit, FilterKeys limit predicate"
   }
 
@@ -118,6 +119,7 @@ object Main extends App {
       System.err.println(s"Using configuration: $config")
 
       val s3 = S3Client.withCredentials(S3Credentials(config.accessKey, config.secretKey))
+
       val bucket = s3.bucket(config.bucket)
       val keys = bucket.allKeys()
 
@@ -127,45 +129,78 @@ object Main extends App {
           System.err.println("no or unrecognized action specified...terminating")
           System.exit(1)
 
-        case Some(action) => action match {
+        case Some(action) =>
 
-          case PrintKeys(limit) =>
-            System.err.println(s"Printing up to $limit keys...")
-            Await.result(
-              printKeys(keys.take(limit.toInt)),
-              Duration.Inf
-            )
+          val futureResult: Future[_] = action match {
 
-          case CountKeys =>
-            System.err.println(s"Counting all keys...")
-            val nKeys = Await.result(keys.count, Duration.Inf)
-            println(s"$nKeys keys in bucket ${bucket.name}")
+            case PrintKeys(limit) =>
+              System.err.println(s"Printing up to $limit keys...")
+              printKeys(keys.take(limit.toInt))
 
-          case FilterKeys(limit, keyPredicate) =>
-            System.err.println(s"Filtering keys that start with: $keyPredicate")
-            Await.result(
+            case CountKeys =>
+              System.err.println(s"Counting all keys...")
+              val c = keys.count
+              import scala.concurrent.ExecutionContext.Implicits.global
+              c.onSuccess({
+                case nKeys =>
+                  println(s"$nKeys keys in bucket ${bucket.name}")
+              })
+              c
+
+            case FilterKeys(limit, keyPredicate) =>
+              System.err.println(s"Filtering keys that start with: $keyPredicate")
               printKeys(
                 keys
                   .take(limit)
                   .map(l =>
                     l.filter(x => x.key.startsWith(keyPredicate))
                   )
-              ),
-              Duration.Inf
-            )
+              )
 
-          case RandomSample(limit) =>
-            System.err.println(s"Taking a random sample of size $limit")
-            Await.result(
+            case RandomSample(limit) =>
+              System.err.println(s"Taking a random sample of size $limit")
               printKeys(
                 keys
                   .filter(_ => Random.nextBoolean())
                   .take(limit)
-              ),
-              Duration.Inf
-            )
+              )
 
-        }
+            case Copy(toBucket, output) =>
+              System.err.println(s"Copying keys in ${output.getCanonicalPath} to bucket $toBucket")
+
+              val copyKeys =
+                Source.fromFile(output)
+                  .getLines()
+                  .map(_.split("\\t")(0).trim)
+                  .toSeq
+              System.err.println(s"${copyKeys.size} keys to copy")
+
+              val copyToBucket = s3.bucket(toBucket)
+
+              import scala.concurrent.ExecutionContext.Implicits.global
+
+              copyKeys
+                .map(k => (k, bucket.copyObject(k, copyToBucket)))
+                .foreach({
+
+                  case (k, f) =>
+
+                    println(s"key: $k")
+
+                    Try(Await.result(f, Duration.Inf)) match {
+
+                      case Success(_) =>
+                        println(s"Successfully copied: $k to $toBucket")
+
+                      case Failure(e) =>
+                        println(s"Failed to copy $k to $toBucket , reason: $e")
+                    }
+                })
+              Future.successful(None)
+
+          }
+
+          Await.result(futureResult, Duration.Inf)
       }
   }
 }
