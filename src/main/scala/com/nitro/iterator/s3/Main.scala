@@ -5,12 +5,17 @@ import scopt.Read
 
 import scala.concurrent.{ Future, Await }
 import scala.concurrent.duration._
+import scala.util.Random
 
 sealed trait Action
 
 case class PrintKeys(limit: Int) extends Action
+
 case object CountKeys extends Action
+
 case class FilterKeys(limit: Int, keyStartsWith: String) extends Action
+
+case class RandomSample(limit: Int) extends Action
 
 case class ActionOpt(name: String, limit: Int = -1, extra: String = "") {
 
@@ -25,6 +30,9 @@ case class ActionOpt(name: String, limit: Int = -1, extra: String = "") {
 
     else if (n.startsWith("filterkeys"))
       FilterKeys(correctedLimit, extra)
+
+    else if (n.startsWith("randomsample"))
+      RandomSample(limit)
 
     else
       throw new Exception(s"unknown Action name: $name")
@@ -107,7 +115,7 @@ object Main extends App {
       System.exit(1)
 
     case Some(config) =>
-      println(s"Using configuration: $config")
+      System.err.println(s"Using configuration: $config")
 
       val s3 = S3Client.withCredentials(S3Credentials(config.accessKey, config.secretKey))
       val bucket = s3.bucket(config.bucket)
@@ -116,25 +124,25 @@ object Main extends App {
       config.action match {
 
         case None =>
-          println("no or unrecognized action specified...terminating")
+          System.err.println("no or unrecognized action specified...terminating")
           System.exit(1)
 
         case Some(action) => action match {
 
           case PrintKeys(limit) =>
-            println(s"Printing up to $limit keys...")
+            System.err.println(s"Printing up to $limit keys...")
             Await.result(
               printKeys(keys.take(limit.toInt)),
               Duration.Inf
             )
 
           case CountKeys =>
-            println(s"Counting all keys...")
+            System.err.println(s"Counting all keys...")
             val nKeys = Await.result(keys.count, Duration.Inf)
             println(s"$nKeys keys in bucket ${bucket.name}")
 
           case FilterKeys(limit, keyPredicate) =>
-            println(s"Filtering keys that start with: $keyPredicate")
+            System.err.println(s"Filtering keys that start with: $keyPredicate")
             Await.result(
               printKeys(
                 keys
@@ -145,6 +153,18 @@ object Main extends App {
               ),
               Duration.Inf
             )
+
+          case RandomSample(limit) =>
+            System.err.println(s"Taking a random sample of size $limit")
+            Await.result(
+              printKeys(
+                keys
+                  .filter(_ => Random.nextBoolean())
+                  .take(limit)
+              ),
+              Duration.Inf
+            )
+
         }
       }
   }
