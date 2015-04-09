@@ -139,13 +139,16 @@ object Main extends App {
 
             case CountKeys =>
               System.err.println(s"Counting all keys...")
-              val c = keys.count
               import scala.concurrent.ExecutionContext.Implicits.global
-              c.onSuccess({
-                case nKeys =>
-                  println(s"$nKeys keys in bucket ${bucket.name}")
-              })
-              c
+              keys
+                .foldLeft((0L, 0))({
+                  case ((nKeys, nCompound), objects) =>
+                    (nKeys + objects.size.toLong, nCompound + 1)
+                })
+                .map({
+                  case (nKeys, nCompound) =>
+                    println(s"There are $nKeys across $nCompound object lists in bucket ${bucket.name}")
+                })
 
             case FilterKeys(limit, keyPredicate) =>
               System.err.println(s"Filtering keys that start with: $keyPredicate")
@@ -176,8 +179,6 @@ object Main extends App {
               System.err.println(s"${copyKeys.size} keys to copy")
 
               val copyToBucket = s3.bucket(toBucket)
-
-              import scala.concurrent.ExecutionContext.Implicits.global
 
               copyKeys
                 .map(k => (k, bucket.copyObject(k, copyToBucket)))
