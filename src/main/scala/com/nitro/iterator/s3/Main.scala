@@ -102,7 +102,7 @@ object Main extends App {
 
     opt[Action]('c', "action") required () valueName "<Action>" action { (x, c) =>
       c.copy(action = Some(x))
-    } text "action is what this client will do: CountKeys, PrintKeys limit_items, FilterKeys limit_items predicate, SizeSample limit_MB, ItemSample limit_items"
+    } text "action is what this client will do: CountKeys, PrintKeys limit_items, FilterKeys limit_items predicate, SizeSample limit_MB, ItemSample limit_items, copy toBucket fromFileList"
   }
 
   def printKeys(iter: PlayStreamIterator[S3ObjectSummary]): Future[Unit] =
