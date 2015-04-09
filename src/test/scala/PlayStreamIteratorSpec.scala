@@ -1,6 +1,6 @@
 package test
 
-import com.nitro.iterator.PlayStreamIterator
+import com.nitro.iterator.{ PlayStreamIteratorConversions, PlayStreamIterator }
 import org.specs2.mutable._
 import play.api.libs.iteratee.Enumerator
 
@@ -32,6 +32,8 @@ trait EnumeratorListFixture extends Scope {
 }
 
 class PlayStreamIteratorSpec extends Specification {
+
+  import PlayStreamIteratorConversions.{ travOnceFn2EnumeratorFn, travOnce2Enumerator }
 
   "PlayStreamIterator" should {
 
@@ -163,7 +165,6 @@ class PlayStreamIteratorSpec extends Specification {
 
       val flattenedSeq = Await.result(
         {
-          import PlayStreamIteratorSpec.travOnce2Enumerator
           val seqFuture =
             PlayStreamIterator[Seq[Int]](intListEnumerator)
               .flatten[Int]
@@ -194,8 +195,6 @@ class PlayStreamIteratorSpec extends Specification {
 
     "flatMap with int elements, using Option" in new EnumeratorFixture {
 
-      import PlayStreamIteratorSpec.travOnce2Enumerator
-
       val evenOnly =
         PlayStreamIterator[Int](integerEnumerator)
           .flatMap(i =>
@@ -210,13 +209,5 @@ class PlayStreamIteratorSpec extends Specification {
       evenOnly.forall(i => Future(i % 2 == 0)) must be_==(true).await
     }
   }
-
-}
-
-object PlayStreamIteratorSpec {
-
-  /** Covers Seq, List, etc. as well as Option */
-  implicit def travOnce2Enumerator[T](x: TraversableOnce[T])(implicit ec: ExecutionContext): Enumerator[T] =
-    Enumerator.enumerate(x)
 
 }

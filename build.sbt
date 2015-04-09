@@ -28,6 +28,9 @@ scalacOptions ++= Seq(
   "-language:postfixOps"
 )
 
-scalacOptions in Test ++= Seq("-Yrangepos")
+scalacOptions in Test ++= Seq(
+  "-Yrangepos",
+  "-feature"
+)
 
 defaultScalariformSettings
