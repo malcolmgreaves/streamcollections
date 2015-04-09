@@ -19,7 +19,13 @@ case object CountKeys extends Action
 
 case class FilterKeys(limit: Int, keyStartsWith: String) extends Action
 
-case class RandomSample(limit: Int) extends Action
+case class RandomItemSample(limit: Int) extends Action
+
+case class RandomSizeSample(size:Megabyte) extends Action
+
+case class Megabyte(x:Int) {
+  @inline def toInt:Int = x
+}
 
 case class Copy(toBucket: String, from: File) extends Action
 
@@ -61,8 +67,11 @@ object MainConfig {
         } else if (n.startsWith("filter")) {
           FilterKeys(correctedLimit(bits(1).toInt), bits(2))
 
-        } else if (n.startsWith("random") || n.startsWith("sample")) {
-          RandomSample(correctedLimit(bits(1).toInt))
+        } else if (n.startsWith("itemsample")) {
+          RandomItemSample(correctedLimit(bits(1).toInt))
+
+        } else if(n.startsWith("sizesample")) {
+          RandomSizeSample(Megabyte(correctedLimit(bits(1).toInt)))
 
         } else if (n.startsWith("copy")) {
           Copy(bits(1), new File(bits(2)))
@@ -95,7 +104,7 @@ object Main extends App {
 
     opt[Action]('c', "action") required () valueName "<Action>" action { (x, c) =>
       c.copy(action = Some(x))
-    } text "action is what this client will do: CountKeys limit , PrintKeys limit, FilterKeys limit predicate"
+    } text "action is what this client will do: CountKeys, PrintKeys limit_items, FilterKeys limit_items predicate, SizeSample limit_MB, ItemSample limit_items"
   }
 
   def printKeys(iter: PlayStreamIterator[S3ObjectSummary]): Future[Unit] =
@@ -115,7 +124,7 @@ object Main extends App {
       val s3 = S3Client.withCredentials(S3Credentials(config.accessKey, config.secretKey))
 
       val bucket = s3.bucket(config.bucket)
-      val keys = bucket.allKeys()
+      val keys:PlayStreamIterator[List[S3ObjectSummary]] = bucket.allKeys()
 
       config.action match {
 
@@ -159,7 +168,7 @@ object Main extends App {
                   .take(limit)
               )
 
-            case RandomSample(limit) =>
+            case RandomItemSample(limit) =>
               System.err.println(s"Taking a random sample of size $limit")
               printKeys(
                 keys
@@ -167,6 +176,36 @@ object Main extends App {
                   .filter(_ => Random.nextBoolean())
                   .take(limit)
               )
+
+            case RandomSizeSample(Megabyte(sizeMB)) =>
+              System.err.println(s"Taking a random sample of at least $sizeMB MB")
+
+              val mutableSizePredicate = {
+
+                val sizeInKb = sizeMB * 1000l
+                var accumSizeInKB = 0l
+
+                val convObjSizeBytesToKB =
+                  (o:S3ObjectSummary) => o.underlying.getSize / 1000 // trunacate is ok
+
+                (o:S3ObjectSummary) =>
+                  if(accumSizeInKB > sizeInKb) {
+                    System.err.println(s"size exceeded, final accumulated size: $accumSizeInKB KB")
+                    false
+
+                  } else {
+                    accumSizeInKB += convObjSizeBytesToKB(o)
+                    true
+                  }
+              }
+
+              printKeys(
+                keys
+                  .flatten
+                  .filter(_ => Random.nextBoolean())
+                  .takeWhile(mutableSizePredicate)
+              )
+
 
             case Copy(toBucket, output) =>
               System.err.println(s"Copying keys in ${output.getCanonicalPath} to bucket $toBucket")
