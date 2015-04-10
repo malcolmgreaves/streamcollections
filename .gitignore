@@ -1,4 +1,6 @@
 # Ignore Play! working directory #
+COPY*
+LOG*
 bin/
 /db
 .eclipse
