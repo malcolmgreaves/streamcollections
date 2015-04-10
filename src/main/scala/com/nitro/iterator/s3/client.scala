@@ -141,32 +141,39 @@ class Bucket(val name: String, val client: AmazonS3) {
   val -- = deleteObjects _
 
   /**
-   * Copy object
+   * Copy an object from one bucket to this bucket.
+   *
+   * If the buckets are on the same AWS account, the copy will occur
+   * as an asynchonous computation on the AWS backend. Otherwise, the
+   * data will be copied to this JVM and then sent back to AWS to be
+   * put into the bucket.
    */
   def copyObject(key: String, other: Bucket): Future[Unit] = Future {
     time(s"S3Bucket.copyObject[$key]") {
 
-      def logError(t: Throwable) = {
-
-        logger.error(s"Failed to copy $key from bucket $name to bucket ${other.name}", t)
-      }
-
-      logger.info(s"Attempting to copy $key to bucket ${other.name}")
+      logger info s"Attempting to copy $key to bucket ${other.name}"
 
       Try {
+        if (client.getS3AccountOwner.getId == other.client.getS3AccountOwner.getId) {
+          // same AWS account, can do backend async copy
+          client.copyObject(other.name, key, name, key)
 
-        for (is <- managed(client.getObject(name, key).getObjectContent())) {
-
-          other.client.putObject(other.name, key, is, new ObjectMetadata())
+        } else {
+          // different AWS accounts, must stream the data into this JVM and then send
+          // it off to be copied
+          for (is <- managed(client.getObject(name, key).getObjectContent)) {
+            other.client.putObject(other.name, key, is, new ObjectMetadata())
+          }
         }
-
       } match {
 
         // Nothing to do - it's a file copy, so a pure side effect
         case Success(_) =>
+          ()
+
         // Handle non-fatal errors
         case Failure(NonFatal(t)) =>
-          logger error (s"Failed to copy $key from bucket $name to bucket ${other.name}", t)
+          logger error s"Failed to copy $key from bucket $name to bucket ${other.name}"
       }
     }
   }
