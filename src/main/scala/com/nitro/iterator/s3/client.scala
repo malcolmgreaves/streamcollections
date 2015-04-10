@@ -170,10 +170,10 @@ class Bucket(val name: String, val client: AmazonS3) {
           logger info s"Copied $key to bucket ${other.name}"
 
         // Handle non-fatal errors
-        case f @ Failure(NonFatal(t)) =>
+        case Failure(NonFatal(t)) =>
           logger error s"Failed to copy $key from bucket $name to bucket ${other.name}:: $t}"
-          f
       }
+      () // Future[Unit]
     }
   }
 
