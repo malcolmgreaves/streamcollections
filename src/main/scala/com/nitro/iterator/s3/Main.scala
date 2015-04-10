@@ -144,12 +144,16 @@ object Main extends App {
 
   }
 
-  def copy[I, O](input: I, output: O, chunk: Int = 2048)(implicit r: Reader[I], w: Writer[O]): Unit = {
-    val buffer = Array.ofDim[Byte](chunk)
-    var count = -1
+  object CopyStreams {
+    def apply[I, O](input: I, output: O, chunk: Int = 2048)(implicit r: Reader[I], w: Writer[O]): Unit = {
+      val buffer = Array.ofDim[Byte](chunk)
+      var count = -1
 
-    while ({ count = r.read(input, buffer); count > 0 })
-      w.write(output, buffer, 0, count)
+      while ({
+        count = r.read(input, buffer); count > 0
+      })
+        w.write(output, buffer, 0, count)
+    }
   }
 
   parser.parse(args, MainConfig()) match {
@@ -301,7 +305,7 @@ object Main extends App {
                   is <- resource.managed(bucket.client.getObject(bucket.name, key.key).getObjectContent);
                   fos <- resource.managed(new FileOutputStream(new File(output, key.key)))
                 ) {
-                  Try(copy(is, fos)) match {
+                  Try(CopyStreams(is, fos)) match {
                     case Success(_) =>
                       ()
                     case Failure(e) =>
