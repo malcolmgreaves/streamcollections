@@ -1,7 +1,9 @@
 package com.nitro.iterator.s3
 
-import java.io.File
+import java.io._
+import java.nio.file.{ Path, Files }
 
+import com.amazonaws.services.s3.model.{ S3ObjectInputStream, S3Object }
 import com.nitro.iterator.PlayStreamIterator
 import play.api.libs.iteratee.{ Iteratee, Enumerator }
 import scopt.Read
@@ -26,6 +28,8 @@ case class SizeSample(size: Megabyte) extends Action
 case class Megabyte(x: Int)
 
 case class Copy(toBucket: String, from: File) extends Action
+
+case class Download(loc: File, limit: Option[Int]) extends Action
 
 case class MainConfig(
     accessKey: String = "",
@@ -74,6 +78,9 @@ object MainConfig {
         } else if (n.startsWith("copy")) {
           Copy(bits(1), new File(bits(2)))
 
+        } else if (n.startsWith("download")) {
+          Download(new File(bits(1)), Try(bits(2).toInt).toOption)
+
         } else
           throw new Exception(s"unknown Action name: $name")
       }
@@ -102,7 +109,7 @@ object Main extends App {
 
     opt[Action]('c', "action") required () valueName "<Action>" action { (x, c) =>
       c.copy(action = Some(x))
-    } text "action is what this client will do: CountKeys, PrintKeys limit_items, FilterKeys limit_items predicate, SizeSample limit_MB, ItemSample limit_items, copy toBucket fromFileList"
+    } text "action is what this client will do: CountKeys, PrintKeys limit_items, FilterKeys limit_items predicate, SizeSample limit_MB, ItemSample limit_items, copy toBucket fromFileList, download to_directory limit_or_none"
   }
 
   def printKeys(iter: PlayStreamIterator[S3ObjectSummary]): Future[Unit] =
@@ -110,6 +117,40 @@ object Main extends App {
       .foreach(x =>
         println(s"${x.key}\t${x.bucketName}\t${x.underlying.getSize}\t${x.underlying.getStorageClass}\t${x.lastModified}")
       )
+
+  trait Reader[O] {
+    def read(input: O, buffer: Array[Byte]): Int
+  }
+
+  object Reader {
+
+    implicit val s3ObjectISReader = new Reader[S3ObjectInputStream] {
+      override def read(input: S3ObjectInputStream, buffer: Array[Byte]): Int =
+        input.read(buffer)
+    }
+
+  }
+
+  trait Writer[O] {
+    def write(output: O, buffer: Array[Byte], startAt: Int, nBytesToWrite: Int): Unit
+  }
+
+  object Writer {
+
+    implicit val fileOSWriter = new Writer[FileOutputStream] {
+      override def write(output: FileOutputStream, buffer: Array[Byte], startAt: Int, nBytesToWrite: Int): Unit =
+        output.write(buffer, startAt, nBytesToWrite)
+    }
+
+  }
+
+  def copy[I, O](input: I, output: O, chunk: Int = 2048)(implicit r: Reader[I], w: Writer[O]): Unit = {
+    val buffer = Array.ofDim[Byte](chunk)
+    var count = -1
+
+    while ({ count = r.read(input, buffer); count > 0 })
+      w.write(output, buffer, 0, count)
+  }
 
   parser.parse(args, MainConfig()) match {
 
@@ -204,11 +245,14 @@ object Main extends App {
                   .takeWhile(mutableSizePredicate)
               )
 
-            case Copy(toBucket, output) =>
-              System.err.println(s"Copying keys in ${output.getCanonicalPath} to bucket $toBucket")
+            case Copy(toBucket, copyFi) =>
+              if (!copyFi.isFile) {
+                throw new IllegalArgumentException(s"Copy file $copyFi doesn't exist or it is a directory")
+              }
+              System.err.println(s"Copying keys in ${copyFi.getCanonicalPath} to bucket $toBucket")
 
               val copyKeys =
-                Source.fromFile(output)
+                Source.fromFile(copyFi)
                   .getLines()
                   .map(_.split("\\t")(0).trim)
                   .toSeq
@@ -225,9 +269,51 @@ object Main extends App {
                 })
               Future { None }
 
+            case Download(output, l) =>
+              if (output.exists()) {
+                if (output.isFile) {
+                  throw new IllegalStateException(s"Output exists, but it's a file: $output")
+                }
+                // it's a directory, so that's ok
+              } else {
+                // make the directory
+                if (!output.mkdirs()) {
+                  throw new IllegalStateException(s"Could not create output directory: $output")
+                }
+              }
+
+              val dlKeys = l match {
+                case Some(limit) =>
+                  System.err.println(s"Downloading $limit keys to $output")
+                  keys.flatten.take(limit)
+
+                case None =>
+                  System.err.println(s"Downloading all keys to $output")
+                  keys.flatten
+              }
+
+              // download each S3 object
+              import Reader.s3ObjectISReader
+              import Writer.fileOSWriter
+              dlKeys.foreach(key =>
+                for (
+                  is <- resource.managed(bucket.client.getObject(bucket.name, key.key).getObjectContent);
+                  fos <- resource.managed(new FileOutputStream(new File(output, key.key)))
+                ) {
+                  copy(is, fos)
+                }
+              )
+
           }
 
-          Await.result(futureResult, Duration.Inf)
+          Try(Await.result(futureResult, Duration.Inf)) match {
+
+            case Success(_) =>
+              ()
+
+            case Failure(t) =>
+              System.err.println(s"Error performing $action : $t")
+          }
       }
   }
 }
