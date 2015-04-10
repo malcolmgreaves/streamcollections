@@ -21,9 +21,9 @@ case class FilterKeys(limit: Int, keyStartsWith: String) extends Action
 
 case class ItemSample(limit: Int) extends Action
 
-case class SizeSample(size:Megabyte) extends Action
+case class SizeSample(size: Megabyte) extends Action
 
-case class Megabyte(x:Int)
+case class Megabyte(x: Int)
 
 case class Copy(toBucket: String, from: File) extends Action
 
@@ -68,7 +68,7 @@ object MainConfig {
         } else if (n.startsWith("itemsample")) {
           ItemSample(correctedLimit(bits(1).toInt))
 
-        } else if(n.startsWith("sizesample")) {
+        } else if (n.startsWith("sizesample")) {
           SizeSample(Megabyte(correctedLimit(bits(1).toInt)))
 
         } else if (n.startsWith("copy")) {
@@ -122,7 +122,7 @@ object Main extends App {
       val s3 = S3Client.withCredentials(S3Credentials(config.accessKey, config.secretKey))
 
       val bucket = s3.bucket(config.bucket)
-      val keys:PlayStreamIterator[List[S3ObjectSummary]] = bucket.allKeys()
+      val keys: PlayStreamIterator[List[S3ObjectSummary]] = bucket.allKeys()
 
       config.action match {
 
@@ -184,10 +184,10 @@ object Main extends App {
                 var accumSizeInKB = 0l
 
                 val convObjSizeBytesToKB =
-                  (o:S3ObjectSummary) => o.underlying.getSize / 1000 // trunacate is ok
+                  (o: S3ObjectSummary) => o.underlying.getSize / 1000 // trunacate is ok
 
-                (o:S3ObjectSummary) =>
-                  if(accumSizeInKB > sizeInKb) {
+                (o: S3ObjectSummary) =>
+                  if (accumSizeInKB > sizeInKb) {
                     System.err.println(s"size exceeded, final accumulated size: $accumSizeInKB KB")
                     false
 
@@ -204,7 +204,6 @@ object Main extends App {
                   .takeWhile(mutableSizePredicate)
               )
 
-
             case Copy(toBucket, output) =>
               System.err.println(s"Copying keys in ${output.getCanonicalPath} to bucket $toBucket")
 
@@ -220,21 +219,11 @@ object Main extends App {
               copyKeys
                 .map(k => (k, bucket.copyObject(k, copyToBucket)))
                 .foreach({
-
                   case (k, f) =>
-
                     println(s"key: $k")
-
-                    Try(Await.result(f, Duration.Inf)) match {
-
-                      case Success(_) =>
-                        println(s"Successfully copied: $k to $toBucket")
-
-                      case Failure(e) =>
-                        println(s"Failed to copy $k to $toBucket , reason: $e")
-                    }
+                    Await.result(f, Duration.Inf)
                 })
-              Future.successful(None)
+              Future { None }
 
           }
 

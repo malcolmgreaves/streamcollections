@@ -151,18 +151,14 @@ class Bucket(val name: String, val client: AmazonS3) {
   def copyObject(key: String, other: Bucket): Future[Unit] = Future {
     time(s"S3Bucket.copyObject[$key]") {
 
-      logger info s"Attempting to copy $key to bucket ${other.name}"
-
       Try {
         if (client.getS3AccountOwner.getId == other.client.getS3AccountOwner.getId) {
           // same AWS account, can do backend async copy
-          logger info s"owners are the same: ${client.getS3AccountOwner.getId}"
-          client.copyObject(other.name, key, name, key)
+          client.copyObject(name, key, other.name, key)
 
         } else {
           // different AWS accounts, must stream the data into this JVM and then send
           // it off to be copied
-          logger info s"owners are different: ${client.getS3AccountOwner.getId} vs ${other.client.getS3AccountOwner.getId}"
           for (is <- managed(client.getObject(name, key).getObjectContent)) {
             other.client.putObject(other.name, key, is, new ObjectMetadata())
           }
@@ -171,11 +167,12 @@ class Bucket(val name: String, val client: AmazonS3) {
 
         // Nothing to do - it's a file copy, so a pure side effect
         case Success(_) =>
-          ()
+          logger info s"Copied $key to bucket ${other.name}"
 
         // Handle non-fatal errors
-        case Failure(NonFatal(t)) =>
-          logger error s"Failed to copy $key from bucket $name to bucket ${other.name}"
+        case f @ Failure(NonFatal(t)) =>
+          logger error s"Failed to copy $key from bucket $name to bucket ${other.name}:: $t}"
+          f
       }
     }
   }
