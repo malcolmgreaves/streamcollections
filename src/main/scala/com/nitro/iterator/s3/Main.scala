@@ -283,6 +283,7 @@ object Main extends App {
               }
 
               val dlKeys = l match {
+
                 case Some(limit) =>
                   System.err.println(s"Downloading $limit keys to $output")
                   keys.flatten.take(limit)
@@ -300,7 +301,12 @@ object Main extends App {
                   is <- resource.managed(bucket.client.getObject(bucket.name, key.key).getObjectContent);
                   fos <- resource.managed(new FileOutputStream(new File(output, key.key)))
                 ) {
-                  copy(is, fos)
+                  Try(copy(is, fos)) match {
+                    case Success(_) =>
+                      ()
+                    case Failure(e) =>
+                      System.err.println(s"Failed to download $key : $e")
+                  }
                 }
               )
 
