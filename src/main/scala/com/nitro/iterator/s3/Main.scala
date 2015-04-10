@@ -13,84 +13,25 @@ import scala.concurrent.duration._
 import scala.io.Source
 import scala.util.{ Try, Failure, Success, Random }
 
-sealed trait Action
-
-case class PrintKeys(limit: Int) extends Action
-
-case object CountKeys extends Action
-
-case class FilterKeys(limit: Int, keyStartsWith: String) extends Action
-
-case class ItemSample(limit: Int) extends Action
-
-case class SizeSample(size: Megabyte) extends Action
-
-case class Megabyte(x: Int)
-
-case class Copy(toBucket: String, from: File) extends Action
-
-case class Download(loc: File, limit: Option[Int]) extends Action
-
 case class MainConfig(
     accessKey: String = "",
     secretKey: String = "",
     bucket: String = "",
     action: Option[Action] = None) {
+
   override def toString: String =
     s"{Access Key: $accessKey , Secret Key: $secretKey , Bucket: $bucket, Action: $action}"
 }
 
-object MainConfig {
-
-  import Numeric._
-
-  def correctedLimit[N](limit: N)(implicit n: Numeric[N]) =
-    if (n.lt(limit, n.zero))
-      n.zero
-    else
-      limit
-
-  implicit val readAction = new Read[Action] {
-
-    override def arity: Int = 3
-
-    override def reads =
-      (s: String) => {
-        val bits = s.split(" ")
-        val name = bits(0)
-        val n = name.toLowerCase
-
-        if (n.startsWith("print")) {
-          PrintKeys(correctedLimit(bits(1).toInt))
-
-        } else if (n.startsWith("count")) {
-          CountKeys
-
-        } else if (n.startsWith("filter")) {
-          FilterKeys(correctedLimit(bits(1).toInt), bits(2))
-
-        } else if (n.startsWith("itemsample")) {
-          ItemSample(correctedLimit(bits(1).toInt))
-
-        } else if (n.startsWith("sizesample")) {
-          SizeSample(Megabyte(correctedLimit(bits(1).toInt)))
-
-        } else if (n.startsWith("copy")) {
-          Copy(bits(1), new File(bits(2)))
-
-        } else if (n.startsWith("download")) {
-          Download(new File(bits(1)), Try(bits(2).toInt).toOption)
-
-        } else
-          throw new Exception(s"unknown Action name: $name")
-      }
-  }
-
-}
-
 object Main extends App {
 
-  import MainConfig._
+  import Action._
+
+  def printKeys(iter: PlayStreamIterator[S3ObjectSummary]): Future[Unit] =
+    iter
+      .foreach(x =>
+        println(s"${x.key}\t${x.bucketName}\t${x.underlying.getSize}\t${x.underlying.getStorageClass}\t${x.lastModified}")
+      )
 
   val parser = new scopt.OptionParser[MainConfig]("Main S3 Client") {
     head("Main S3 Client", "0.1x")
@@ -112,53 +53,10 @@ object Main extends App {
     } text "action is what this client will do: CountKeys, PrintKeys limit_items, FilterKeys limit_items predicate, SizeSample limit_MB, ItemSample limit_items, copy toBucket fromFileList, download to_directory limit_or_none"
   }
 
-  def printKeys(iter: PlayStreamIterator[S3ObjectSummary]): Future[Unit] =
-    iter
-      .foreach(x =>
-        println(s"${x.key}\t${x.bucketName}\t${x.underlying.getSize}\t${x.underlying.getStorageClass}\t${x.lastModified}")
-      )
-
-  trait Reader[O] {
-    def read(input: O, buffer: Array[Byte]): Int
-  }
-
-  object Reader {
-
-    implicit val s3ObjectISReader = new Reader[S3ObjectInputStream] {
-      override def read(input: S3ObjectInputStream, buffer: Array[Byte]): Int =
-        input.read(buffer)
-    }
-
-  }
-
-  trait Writer[O] {
-    def write(output: O, buffer: Array[Byte], startAt: Int, nBytesToWrite: Int): Unit
-  }
-
-  object Writer {
-
-    implicit val fileOSWriter = new Writer[FileOutputStream] {
-      override def write(output: FileOutputStream, buffer: Array[Byte], startAt: Int, nBytesToWrite: Int): Unit =
-        output.write(buffer, startAt, nBytesToWrite)
-    }
-
-  }
-
-  object CopyStreams {
-    def apply[I, O](input: I, output: O, chunk: Int = 2048)(implicit r: Reader[I], w: Writer[O]): Unit = {
-      val buffer = Array.ofDim[Byte](chunk)
-      var count = -1
-
-      while ({
-        count = r.read(input, buffer); count > 0
-      })
-        w.write(output, buffer, 0, count)
-    }
-  }
-
   parser.parse(args, MainConfig()) match {
 
     case None =>
+      System.err.println("Unintelligible configuartion. Exiting.")
       System.exit(1)
 
     case Some(config) =>
@@ -317,10 +215,8 @@ object Main extends App {
           }
 
           Try(Await.result(futureResult, Duration.Inf)) match {
-
             case Success(_) =>
               ()
-
             case Failure(t) =>
               System.err.println(s"Error performing $action : $t")
           }

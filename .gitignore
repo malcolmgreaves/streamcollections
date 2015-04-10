@@ -17,5 +17,5 @@ server.pid
 /dist/
 .cache
 /.idea/
-COPY*
+/COPY*
 LOG*
