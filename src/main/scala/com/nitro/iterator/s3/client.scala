@@ -156,11 +156,13 @@ class Bucket(val name: String, val client: AmazonS3) {
       Try {
         if (client.getS3AccountOwner.getId == other.client.getS3AccountOwner.getId) {
           // same AWS account, can do backend async copy
+          logger info s"owners are the same: ${client.getS3AccountOwner.getId}"
           client.copyObject(other.name, key, name, key)
 
         } else {
           // different AWS accounts, must stream the data into this JVM and then send
           // it off to be copied
+          logger info s"owners are different: ${client.getS3AccountOwner.getId} vs ${other.client.getS3AccountOwner.getId}"
           for (is <- managed(client.getObject(name, key).getObjectContent)) {
             other.client.putObject(other.name, key, is, new ObjectMetadata())
           }
