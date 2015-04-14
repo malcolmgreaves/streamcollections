@@ -201,8 +201,8 @@ class PlayStreamIterator[T](val underlying: Enumerator[T]) {
    * Evaluates to a flattened stream where each element T is flattened
    * into a sequence of U types. The resulting stream is of type U.
    */
-  def flatMap[U](f: T => Enumerator[U]): PlayStreamIterator[U] = {
-    val flatMap = Enumeratee.mapFlatten[T][U](f)
+  def flatMap[U](f: T => PlayStreamIterator[U]): PlayStreamIterator[U] = {
+    val flatMap = Enumeratee.mapFlatten[T][U]((element:T) => f(element).underlying)
     new PlayStreamIterator[U](underlying &> flatMap)
   }
 
@@ -212,7 +212,7 @@ class PlayStreamIterator[T](val underlying: Enumerator[T]) {
    * similar semantics. The resulting stream will have "exploded" or "flattened"
    * each one of these elements.
    */
-  def flatten[U](implicit asEnumerator: T => Enumerator[U]): PlayStreamIterator[U] =
+  def flatten[U](implicit asEnumerator: T => PlayStreamIterator[U]): PlayStreamIterator[U] =
     flatMap(x => asEnumerator(x))
 
 }
@@ -236,18 +236,20 @@ object PlayStreamIterator {
 
 object PlayStreamIteratorConversions {
 
+  import scala.language.implicitConversions
+
   /**
    * Allows easy conversion from T => {Option , Seq, List, etc.} to T => Enumerator
    * for use in PlayStreamIterator's flatMap.
    */
-  implicit def travOnceFn2EnumeratorFn[T, U](f: T => TraversableOnce[U])(implicit ec: ExecutionContext): T => Enumerator[U] =
+  implicit def travOnceFn2EnumeratorFn[T, U](f: T => TraversableOnce[U])(implicit ec: ExecutionContext): T => PlayStreamIterator[U] =
     (input: T) => travOnce2Enumerator(f(input))
 
   /**
    * Allows for easy conversion of a TraversableOnce (Option, Seq, List, etc.) into an Enumerator.
    * Used in the implicit conversion travOnceFn2Enumeratorfn.
    */
-  implicit def travOnce2Enumerator[T](x: TraversableOnce[T])(implicit ec: ExecutionContext): Enumerator[T] =
-    Enumerator.enumerate(x)
+  implicit def travOnce2Enumerator[T](x: TraversableOnce[T])(implicit ec: ExecutionContext): PlayStreamIterator[T] =
+    new PlayStreamIterator(Enumerator.enumerate(x))
 }
 
