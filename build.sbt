@@ -22,6 +22,13 @@ libraryDependencies ++= Seq(
   "org.specs2" %% "specs2-core" % "3.0.1" % "test"
 )
 
-scalacOptions in Test ++= Seq("-Yrangepos")
+scalacOptions ++= Seq(
+  "-optimize"
+)
 
-scalariformSettings
+scalacOptions in Test ++= Seq(
+  "-Yrangepos",
+  "-feature"
+)
+
+defaultScalariformSettings
