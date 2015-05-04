@@ -1,22 +1,41 @@
 package test
 
-import com.nitro.iterator.PlayStreamIterator
+import com.nitro.iterator.{ PlayStreamIteratorConversions, PlayStreamIterator }
 import org.specs2.mutable._
 import play.api.libs.iteratee.Enumerator
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
-import scala.concurrent.{ Await, Future }
+import scala.concurrent.{ ExecutionContext, Await, Future }
 
 import org.specs2.specification.Scope
 
 trait EnumeratorFixture extends Scope {
 
-  val integerEnumerator = Enumerator.enumerate(1 to 5 toList)
+  import scala.language.postfixOps
+
+  val integerEnumerator = Enumerator.enumerate[Int](1 to 5 toList)
+
   val emptyEnumerator = Enumerator.enumerate[Int](Nil)
 }
 
+trait EnumeratorListFixture extends Scope {
+
+  val (intListEnumerator, flattenedIntListEnumerator, sizeIntsInLists) = {
+    val x = (0 until 4).map(i => (1 to 5).map(x => x * i)).toSeq
+    val flat = x.flatten
+    (
+      Enumerator.enumerate[Seq[Int]](x),
+      Enumerator.enumerate[Int](flat),
+      flat.size
+    )
+  }
+
+}
+
 class PlayStreamIteratorSpec extends Specification {
+
+  import PlayStreamIteratorConversions.{ travOnceFn2EnumeratorFn, travOnce2Enumerator }
 
   "PlayStreamIterator" should {
 
@@ -142,6 +161,54 @@ class PlayStreamIteratorSpec extends Specification {
       val iterator = new PlayStreamIterator(integerEnumerator)
       val takeTwo = iterator.drop(2)
       takeTwo.count must be_==(3).await
+    }
+
+    "flatten with list elements" in new EnumeratorListFixture {
+
+      val flattenedSeq = Await.result(
+        {
+          val seqFuture =
+            PlayStreamIterator[Seq[Int]](intListEnumerator)
+              .flatten[Int]
+              .take(sizeIntsInLists)
+              .foldLeft(Seq.empty[Int])({ case (accum, x) => accum :+ x })
+          seqFuture.map(_.size) must be_==(sizeIntsInLists).await
+          seqFuture
+        },
+        Duration.Inf
+      )
+
+      val allEqualInSequence = {
+        var i = 0
+        PlayStreamIterator[Seq[Int]](intListEnumerator)
+          .forall(seq =>
+            Future(
+              seq.forall(x => {
+                val fromFlattenedSeq = flattenedSeq(i)
+                i += 1
+                fromFlattenedSeq == x
+              })
+            )
+          )
+      }
+
+      allEqualInSequence must be_==(true).await
+    }
+
+    "flatMap with int elements, using Option" in new EnumeratorFixture {
+
+      val evenOnly =
+        PlayStreamIterator[Int](integerEnumerator)
+          .flatMap(i =>
+            travOnce2Enumerator(
+              if (i % 2 == 0)
+                Some(i)
+              else
+                None
+            )
+          )
+
+      evenOnly.forall(i => Future(i % 2 == 0)) must be_==(true).await
     }
   }
 

@@ -10,7 +10,7 @@ branches:
 notifications:
   email:
     recipients:
-      - greg.silin@gonitro.com
+      - opensource@gonitro.com
 jdk:
     - oraclejdk7
     - oraclejdk8
